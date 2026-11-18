@@ -6,8 +6,18 @@ const net = require('net');
 const http = require('http');
 const https = require('https');
 const { TextDecoder } = require('util');
+const {
+  applyRealApiCredentials,
+  bootstrapStockLicense,
+  checkStockLicense,
+  createStockRenewSession,
+  getPrimaryMacAddress,
+} = require('./stock-license');
 
 let mainWindow = null;
+let renewWindow = null;
+let licenseUnlockResolver = null;
+let licensePollTimer = null;
 let backendProcess = null;
 let logFilePath = null;
 let backendStartError = null;
@@ -894,6 +904,8 @@ function buildBackendEnvironment({
     PYTHONIOENCODING: 'utf-8',
     WEBUI_HOST: selectedHost,
     WEBUI_ENABLED: 'false',
+    // 桌面端 UI 走 Vite/内置静态资源；启动时禁止自动 npm run build，避免健康检查超时
+    WEBUI_AUTO_BUILD: 'false',
     BOT_ENABLED: 'false',
     DINGTALK_STREAM_ENABLED: 'false',
     FEISHU_STREAM_ENABLED: 'false',
@@ -933,6 +945,30 @@ function initLogging() {
   logLine('Desktop app starting');
 }
 
+function ensureWindowsConsoleUtf8() {
+  if (!isWindows) {
+    return;
+  }
+  try {
+    if (process.stdout && typeof process.stdout.setDefaultEncoding === 'function') {
+      process.stdout.setDefaultEncoding('utf8');
+    }
+    if (process.stderr && typeof process.stderr.setDefaultEncoding === 'function') {
+      process.stderr.setDefaultEncoding('utf8');
+    }
+  } catch (_error) {
+  }
+  try {
+    spawn('cmd.exe', ['/c', 'chcp 65001 >nul'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+  } catch (_error) {
+  }
+}
+
+ensureWindowsConsoleUtf8();
+
 function logLine(message) {
   const timestamp = new Date().toISOString();
   const line = `[${timestamp}] ${message}\n`;
@@ -946,6 +982,16 @@ function logLine(message) {
   console.log(line.trim());
 }
 
+function countCjkChars(text) {
+  const matched = String(text).match(/[\u4e00-\u9fff]/g);
+  return matched ? matched.length : 0;
+}
+
+function countReplacementChars(text) {
+  const matched = String(text).match(/\uFFFD/g);
+  return matched ? matched.length : 0;
+}
+
 function decodeBackendOutput(data, decoder) {
   if (typeof data === 'string') {
     return data.trim();
@@ -954,17 +1000,24 @@ function decodeBackendOutput(data, decoder) {
     return String(data).trim();
   }
 
-  let decoded = decoder.decode(data, { stream: true });
-
-  // Windows 控制台 / 子进程有时仍会吐出本地代码页字节，优先在明显乱码时回退到 GBK。
-  if (isWindows && decoded.includes('\uFFFD')) {
-    try {
-      decoded = new TextDecoder('gbk', { fatal: false }).decode(data, { stream: true });
-    } catch (_error) {
-    }
+  // 后端已强制 -X utf8 / PYTHONUTF8，默认按 UTF-8 解码。
+  // 旧逻辑“见到 � 就整段改 GBK”会把合法 UTF-8（尤其含 emoji）解成「璐靛窞…」这类乱码。
+  const utf8Text = decoder.decode(data, { stream: true });
+  const utf8Bad = countReplacementChars(utf8Text);
+  if (!isWindows || utf8Bad === 0) {
+    return utf8Text.trim();
   }
 
-  return decoded.trim();
+  try {
+    const gbkText = new TextDecoder('gbk', { fatal: false }).decode(data);
+    const gbkBad = countReplacementChars(gbkText);
+    if (gbkBad < utf8Bad && countCjkChars(gbkText) >= countCjkChars(utf8Text)) {
+      return gbkText.trim();
+    }
+  } catch (_error) {
+  }
+
+  return utf8Text.trim();
 }
 
 function formatCommand(command, args = []) {
@@ -1942,9 +1995,110 @@ async function performDesktopUpdateCheck({ manual = false, notify = false } = {}
   }
 }
 
+async function openStockRenewWindow() {
+  const session = await createStockRenewSession({ mac: getPrimaryMacAddress() });
+  const payUrl = String(session.pay_url || '').trim();
+  if (!payUrl) {
+    throw new Error('未获取到续费页面地址');
+  }
+
+  if (renewWindow && !renewWindow.isDestroyed()) {
+    renewWindow.focus();
+    await renewWindow.loadURL(payUrl);
+    return session;
+  }
+
+  renewWindow = new BrowserWindow({
+    width: 560,
+    height: 820,
+    minWidth: 420,
+    minHeight: 640,
+    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    modal: false,
+    title: `${DESKTOP_APP_DISPLAY_NAME} · 续费`,
+    backgroundColor: resolveWindowBackgroundColor(),
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+  renewWindow.on('closed', () => {
+    renewWindow = null;
+  });
+  await renewWindow.loadURL(payUrl);
+  return session;
+}
+
+function stopLicensePolling() {
+  if (licensePollTimer) {
+    clearInterval(licensePollTimer);
+    licensePollTimer = null;
+  }
+}
+
+function resolveLicenseUnlock(license) {
+  stopLicensePolling();
+  if (typeof licenseUnlockResolver === 'function') {
+    const resolve = licenseUnlockResolver;
+    licenseUnlockResolver = null;
+    resolve(license);
+  }
+}
+
+async function refreshStockLicenseStatus() {
+  const license = await checkStockLicense({ mac: getPrimaryMacAddress() });
+  if (license && license.is_expired === false) {
+    resolveLicenseUnlock(license);
+  }
+  return license;
+}
+
+async function showLicenseLockUntilValid(license, envPath) {
+  const lockPath = path.join(__dirname, 'renderer', 'license-lock.html');
+  await mainWindow.loadFile(lockPath, {
+    query: {
+      mac: String(license.mac_address || getPrimaryMacAddress() || ''),
+      code: String(license.activation_code || ''),
+      plan: String(license.plan_label || license.plan_type || ''),
+      expires: String(license.expires_at || ''),
+    },
+  });
+
+  try {
+    await openStockRenewWindow();
+  } catch (error) {
+    logLine(`[license] open renew window failed: ${String(error)}`);
+  }
+
+  return new Promise((resolve) => {
+    licenseUnlockResolver = (nextLicense) => {
+      try {
+        applyRealApiCredentials(envPath, nextLicense);
+      } catch (_error) {
+        // credentials may already be present
+      }
+      if (renewWindow && !renewWindow.isDestroyed()) {
+        renewWindow.close();
+      }
+      resolve(nextLicense);
+    };
+    stopLicensePolling();
+    licensePollTimer = setInterval(() => {
+      void refreshStockLicenseStatus().catch((error) => {
+        logLine(`[license] poll failed: ${String(error)}`);
+      });
+    }, 8000);
+  });
+}
+
 ipcMain.handle('desktop:get-update-state', () => desktopUpdateState);
 ipcMain.handle('desktop:check-for-updates', () => performDesktopUpdateCheck({ manual: true }));
 ipcMain.handle('desktop:install-downloaded-update', () => installDownloadedUpdate());
+ipcMain.handle('desktop:open-stock-renew', () => openStockRenewWindow());
+ipcMain.handle('desktop:get-stock-license', async () => {
+  return checkStockLicense({ mac: getPrimaryMacAddress() });
+});
+ipcMain.handle('desktop:refresh-stock-license', () => refreshStockLicenseStatus());
 ipcMain.handle('desktop:open-release-page', async (_event, releaseUrl) => {
   await shell.openExternal(sanitizeReleaseUrl(releaseUrl));
   return true;
@@ -2064,6 +2218,29 @@ async function createWindow() {
   ensureEnvFile(envPath);
   logStartup(`Env file ready: ${envPath}`);
 
+  try {
+    logStartup('Stock license bootstrap started');
+    let license = await bootstrapStockLicense(envPath);
+    logStartup(
+      `Stock license ready plan=${license.plan_type || ''} expired=${Boolean(license.is_expired)} expires=${license.expires_at || ''}`
+    );
+    if (license.is_expired) {
+      logStartup('Stock license expired, waiting for renew payment');
+      license = await showLicenseLockUntilValid(license, envPath);
+      logStartup(
+        `Stock license restored plan=${license.plan_type || ''} expires=${license.expires_at || ''}`
+      );
+      await mainWindow.loadFile(loadingPath);
+    }
+  } catch (error) {
+    logStartup(`Stock license bootstrap failed: ${String(error)}`);
+    const errorUrl = `file://${loadingPath}?error=${encodeURIComponent(
+      `设备授权失败：${String(error && error.message ? error.message : error)}`
+    )}`;
+    await mainWindow.loadURL(errorUrl);
+    return;
+  }
+
   const backendBindHost = resolveBackendBindHost({ envFile: envPath });
   const backendConnectHost = resolveDesktopConnectHost(backendBindHost);
   logStartup(`Backend bind host=${backendBindHost}; desktop connect host=${backendConnectHost}`);
@@ -2159,6 +2336,25 @@ async function createWindow() {
     await mainWindow.loadURL(mainPageUrl);
     logStartup(`Main page loadURL resolved in ${Date.now() - mainPageStartedAt}ms url=${mainPageUrl}`);
     logStartup(`Main UI loaded in ${Date.now() - startupStartedAt}ms`);
+    stopLicensePolling();
+    licensePollTimer = setInterval(() => {
+      void (async () => {
+        try {
+          const live = await checkStockLicense({ mac: getPrimaryMacAddress() });
+          if (!live || live.is_expired !== true) {
+            return;
+          }
+          stopLicensePolling();
+          logStartup('Stock license expired at runtime, locking desktop');
+          await stopBackend();
+          await showLicenseLockUntilValid(live, envPath);
+          app.relaunch();
+          app.exit(0);
+        } catch (error) {
+          logLine(`[license] runtime check failed: ${String(error)}`);
+        }
+      })();
+    }, 60000);
     // Lotus 品牌桌面端暂时关闭启动时自动检查 GitHub 更新。
     // if (!restoreFailed) {
     //   void performDesktopUpdateCheck({ notify: true });
@@ -2186,6 +2382,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  stopLicensePolling();
   void stopBackend();
 });
 

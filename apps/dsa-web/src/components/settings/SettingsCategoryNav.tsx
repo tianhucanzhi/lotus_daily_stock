@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Bell, Bot, Database, Layers3, LineChart, Settings2, SlidersHorizontal } from 'lucide-react';
+import { BadgeInfo, Bell, Bot, Database, Layers3, LineChart, Settings2, SlidersHorizontal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Badge } from '../common';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
@@ -16,6 +16,7 @@ interface SettingsCategoryNavProps {
 
 const categoryIconMap: Partial<Record<SystemConfigCategory, LucideIcon>> = {
   system: Settings2,
+  about: BadgeInfo,
   base: SlidersHorizontal,
   data_source: Database,
   ai_model: Layers3,
@@ -77,18 +78,20 @@ export const SettingsCategoryNav: React.FC<SettingsCategoryNavProps> = ({
                   </span>
                 ) : null}
               </span>
-              <Badge
-                variant={isActive ? 'info' : 'default'}
-                size="sm"
-                className={cn(
-                  'shrink-0 px-1.5 py-0 text-[11px]',
-                  isActive
-                    ? 'settings-accent-badge border-[hsl(var(--primary)/0.32)]'
-                    : 'border-[var(--settings-border)] bg-[var(--settings-surface)] text-muted-text',
-                )}
-              >
-                {count}
-              </Badge>
+              {category.category === 'about' ? null : (
+                <Badge
+                  variant={isActive ? 'info' : 'default'}
+                  size="sm"
+                  className={cn(
+                    'shrink-0 px-1.5 py-0 text-[11px]',
+                    isActive
+                      ? 'settings-accent-badge border-[hsl(var(--primary)/0.32)]'
+                      : 'border-[var(--settings-border)] bg-[var(--settings-surface)] text-muted-text',
+                  )}
+                >
+                  {count}
+                </Badge>
+              )}
             </button>
           );
         })}

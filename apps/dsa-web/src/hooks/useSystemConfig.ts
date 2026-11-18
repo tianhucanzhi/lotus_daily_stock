@@ -34,6 +34,15 @@ const CATEGORY_DISPLAY_ORDER: Record<string, number> = {
   agent: 55,
   backtest: 60,
   uncategorized: 99,
+  about: 100,
+};
+
+const ABOUT_CATEGORY: SystemConfigCategorySchema = {
+  category: 'about',
+  title: '版本与授权',
+  description: '查看激活码、有效期、剩余时间与客户端版本信息。',
+  displayOrder: CATEGORY_DISPLAY_ORDER.about,
+  fields: [],
 };
 
 function sortItemsByOrder(items: SystemConfigItem[]): SystemConfigItem[] {
@@ -126,6 +135,10 @@ export function useSystemConfig() {
         });
       }
       categoryMap.get(category)?.fields.push(item.schema);
+    }
+
+    if (!categoryMap.has('about')) {
+      categoryMap.set('about', { ...ABOUT_CATEGORY });
     }
 
     return [...categoryMap.values()].sort((a, b) => a.displayOrder - b.displayOrder);

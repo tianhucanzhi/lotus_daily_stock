@@ -91,7 +91,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
           triggerClassName
             ? triggerClassName
             : isDockVariant
-              ? 'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-xs font-medium text-secondary-text transition-colors hover:bg-white/6 hover:text-foreground data-[state=open]:bg-white/8 data-[state=open]:text-foreground'
+              ? 'flex h-6 w-full items-center gap-1 rounded-md px-1.5 text-[10px] font-normal leading-none tracking-tight text-secondary-text transition-colors hover:bg-[var(--nav-active-bg)] hover:text-foreground data-[state=open]:bg-[var(--nav-active-bg)] data-[state=open]:text-[hsl(var(--primary))]'
               : isRailVariant
               ? 'flex h-[var(--nav-item-height)] w-full items-center justify-center gap-2.5 rounded-2xl border border-transparent px-2 text-sm leading-none text-secondary-text transition-all hover:bg-[var(--nav-hover-bg)] hover:text-foreground data-[state=open]:border-[var(--nav-active-border)] data-[state=open]:bg-[var(--nav-active-bg)] data-[state=open]:text-[hsl(var(--primary))]'
               : isNavVariant
@@ -104,9 +104,9 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
         aria-expanded={open}
         aria-label={t('theme.toggle')}
       >
-        <TriggerIcon className={iconClassName ?? cn('shrink-0', isDockVariant ? 'h-3.5 w-3.5' : isRailVariant ? 'h-[18px] w-[18px]' : isNavVariant ? 'h-5 w-5' : 'h-4 w-4')} />
+        <TriggerIcon className={iconClassName ?? cn('shrink-0', isDockVariant ? 'h-2.5 w-2.5' : isRailVariant ? 'h-[18px] w-[18px]' : isNavVariant ? 'h-5 w-5' : 'h-4 w-4')} />
         {isDockVariant ? (
-          <span className={cn('min-w-0 flex-1 truncate text-left', labelClassName)}>{resolveThemeLabel(activeTheme, t)}</span>
+          <span className={cn('min-w-0 flex-1 truncate text-left text-[10px] leading-none', labelClassName)}>{resolveThemeLabel(activeTheme, t)}</span>
         ) : isRailVariant ? (
           <span className={labelClassName}>{t('theme.theme')}</span>
         ) : isNavVariant ? (

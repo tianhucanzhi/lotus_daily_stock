@@ -1,4 +1,6 @@
 import type React from 'react';
+// 暂时隐藏桌面端更新入口；下方保留原实现，恢复时取消注释并删除 early return。
+/*
 import { useEffect, useRef, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +10,14 @@ import { useDesktopUpdate } from '../../hooks/useDesktopUpdate';
 import { cn } from '../../utils/cn';
 import { Button } from '../common/Button';
 import { StatusDot } from '../common/StatusDot';
+*/
 
+export const DesktopUpdateIndicator: React.FC = () => {
+  // 暂时隐藏桌面端更新入口
+  return null;
+};
+
+/*
 export const DesktopUpdateIndicator: React.FC = () => {
   const { t } = useUiLanguage();
   const navigate = useNavigate();
@@ -162,7 +171,7 @@ export const DesktopUpdateIndicator: React.FC = () => {
             className="mt-3 text-xs text-secondary-text underline-offset-2 transition-colors hover:text-foreground hover:underline"
             onClick={() => {
               setOpen(false);
-              navigate('/settings?category=system#desktop-version-info');
+              navigate('/settings?category=about#desktop-version-info');
             }}
           >
             {t('layout.desktopUpdateOpenSettings')}
@@ -172,3 +181,4 @@ export const DesktopUpdateIndicator: React.FC = () => {
     </div>
   );
 };
+*/

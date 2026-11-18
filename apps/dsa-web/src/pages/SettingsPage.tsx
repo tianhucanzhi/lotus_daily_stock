@@ -24,6 +24,7 @@ import {
   SettingsLoading,
   SettingsPanelErrorBoundary,
   SettingsSectionCard,
+  StockLicenseCard,
 } from '../components/settings';
 import { WEB_BUILD_INFO } from '../utils/constants';
 import { parseStockListValue } from '../utils/stockList';
@@ -34,10 +35,19 @@ import type {
   SetupStatusCheck,
   SetupStatusResponse,
   SystemConfigCategory,
+  SystemConfigCategorySchema,
   SystemConfigItem,
   SystemConfigUpdateItem,
 } from '../types/systemConfig';
 import type { UiLanguage, UiTextKey } from '../i18n/uiText';
+
+const ABOUT_SETTINGS_CATEGORY: SystemConfigCategorySchema = {
+  category: 'about',
+  title: '版本与授权',
+  description: '查看激活码、有效期、剩余时间与客户端版本信息。',
+  displayOrder: 100,
+  fields: [],
+};
 
 const LLM_CHANNEL_EDITOR_RUNTIME_KEYS = new Set([
   'LITELLM_MODEL',
@@ -714,14 +724,15 @@ const SettingsPage: React.FC = () => {
   const setupStatusRequestIdRef = useRef(0);
   const {
     isDesktopRuntime,
-    canCheckDesktopUpdate,
+    // 暂时隐藏桌面端更新：保留字段便于恢复
+    // canCheckDesktopUpdate,
     desktopAppVersion,
-    isBusy: isDesktopUpdateBusy,
-    isChecking: isCheckingDesktopUpdate,
-    notice: desktopUpdateNotice,
-    checkForUpdates: handleDesktopUpdateCheck,
-    openReleasePage: openDesktopReleasePage,
-    installDownloadedUpdate: installDesktopUpdate,
+    // isBusy: isDesktopUpdateBusy,
+    // isChecking: isCheckingDesktopUpdate,
+    // notice: desktopUpdateNotice,
+    // checkForUpdates: handleDesktopUpdateCheck,
+    // openReleasePage: openDesktopReleasePage,
+    // installDownloadedUpdate: installDesktopUpdate,
   } = useDesktopUpdate();
   const shouldShowDesktopVersionCard = Boolean(desktopAppVersion);
 
@@ -731,7 +742,7 @@ const SettingsPage: React.FC = () => {
   }, [t]);
 
   const {
-    categories,
+    categories: configCategories,
     itemsByCategory,
     issueByKey,
     activeCategory,
@@ -756,6 +767,12 @@ const SettingsPage: React.FC = () => {
     maskToken,
     llmModelProviders,
   } = useSystemConfig();
+
+  const categories = useMemo(() => {
+    const list = configCategories.filter((item) => item.category !== 'about');
+    list.push({ ...ABOUT_SETTINGS_CATEGORY });
+    return list.sort((a, b) => a.displayOrder - b.displayOrder);
+  }, [configCategories]);
 
   const currentChangedItems = getChangedItems();
   const currentChangedItemsFingerprint = JSON.stringify(currentChangedItems);
@@ -822,7 +839,7 @@ const SettingsPage: React.FC = () => {
   }, [categories, location.search, setActiveCategory]);
 
   useEffect(() => {
-    if (isLoading || activeCategory !== 'system' || location.hash !== '#desktop-version-info') {
+    if (isLoading || activeCategory !== 'about' || location.hash !== '#desktop-version-info') {
       return;
     }
 
@@ -1266,7 +1283,7 @@ const SettingsPage: React.FC = () => {
         </details>
       ) : null}
     </SettingsSectionCard>
-  ) : (
+  ) : activeCategory === 'about' ? null : (
     <EmptyState
       title={t('settings.currentCategoryEmptyTitle')}
       description={t('settings.currentCategoryEmptyDescription')}
@@ -1426,11 +1443,11 @@ const SettingsPage: React.FC = () => {
               />
               </div>
             ) : null}
-            {activeCategory === 'system' ? (
+            {activeCategory === 'about' ? <StockLicenseCard /> : null}
+            {activeCategory === 'about' ? (
               <div id="desktop-version-info">
               <SettingsSectionCard
                 title={t('settings.versionInfo')}
-                description={t('settings.versionInfoDescription')}
               >
                 <div
                   className={`grid grid-cols-1 gap-3 ${shouldShowDesktopVersionCard ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}
@@ -1470,9 +1487,12 @@ const SettingsPage: React.FC = () => {
                     </div>
                   ) : null}
                 </div>
+                {/* 暂时不展示构建说明文案
                 <p className="text-xs leading-6 text-muted-text">
                   {t('settings.updateBuildDescription')}
                 </p>
+                */}
+                {/* 暂时隐藏桌面端更新入口，恢复时取消下方注释并还原 useDesktopUpdate 解构字段
                 {canCheckDesktopUpdate ? (
                   <div className="mt-4 space-y-3 rounded-2xl border settings-border bg-background/30 px-4 py-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1514,6 +1534,7 @@ const SettingsPage: React.FC = () => {
                     )}
                   </div>
                 ) : null}
+                */}
                 {WEB_BUILD_INFO.isFallbackVersion ? (
                   <p className="text-xs leading-6 text-amber-700 dark:text-amber-300">
                     {t('settings.fallbackVersionWarning')}

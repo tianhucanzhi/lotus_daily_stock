@@ -15,3 +15,12 @@ python main.py --schedule
 # Web 界面（访问 http://127.0.0.1:8000）
 python main.py --webui
 python main.py --webui-only
+
+
+--------------------
+开发环境桌面端
+先启动前端服务
+ cd .\apps\dsa-web\
+ npm run dev
+ cd .\apps\dsa-desktop\
+npm run  dev

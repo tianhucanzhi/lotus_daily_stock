@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>莲花智投 · 授权已到期</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #f4f7fb;
+        --bg-secondary: #e8edf5;
+        --panel: rgba(255, 255, 255, 0.9);
+        --text: #172033;
+        --muted: #5e6a7e;
+        --accent: #0ea5c6;
+        --danger: #e11d48;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #08080c;
+          --bg-secondary: #131722;
+          --panel: rgba(16, 18, 28, 0.92);
+          --text: #e2e8f0;
+          --muted: #94a3b8;
+          --accent: #38bdf8;
+          --danger: #fb7185;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top left, var(--bg-secondary), var(--bg) 55%);
+      }
+      .panel {
+        width: min(560px, 92vw);
+        background: var(--panel);
+        border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+        border-radius: 16px;
+        padding: 32px;
+        box-shadow: 0 30px 80px rgba(15, 23, 42, 0.18);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .brand img {
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      p {
+        margin: 0 0 10px;
+        color: var(--muted);
+        line-height: 1.6;
+        font-size: 14px;
+      }
+      .meta {
+        margin: 16px 0 20px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+        font-size: 13px;
+      }
+      .meta div { margin: 4px 0; }
+      .danger { color: var(--danger); font-weight: 600; }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      button {
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 16px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .primary {
+        background: var(--accent);
+        color: #041018;
+        font-weight: 700;
+      }
+      .ghost {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+      }
+      .hint {
+        margin-top: 14px;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <div class="brand">
+        <img src="./lotus-mark.png" alt="莲花智投" />
+        <div>
+          <strong>莲花智投</strong>
+          <div style="color: var(--muted); font-size: 12px;">AI 选股决策盯盘</div>
+        </div>
+      </div>
+      <h1>授权已到期</h1>
+      <p>当前设备试用或订阅已过期，分析与盯盘功能已锁定。完成续费后将自动恢复。</p>
+      <div class="meta">
+        <div>设备 MAC：<span id="mac">—</span></div>
+        <div>激活码：<span id="code">—</span></div>
+        <div>套餐：<span id="plan">—</span></div>
+        <div class="danger">到期时间：<span id="expires">—</span></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="renewBtn" type="button">打开续费页面</button>
+        <button class="ghost" id="refreshBtn" type="button">我已支付，刷新状态</button>
+      </div>
+      <p class="hint" id="statusHint">年卡 ¥999 / 永久 ¥2999。未过期再买年卡会从当前到期日再 +365 天。</p>
+    </div>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value || '—';
+      };
+      setText('mac', params.get('mac'));
+      setText('code', params.get('code'));
+      setText('plan', params.get('plan'));
+      setText('expires', params.get('expires'));
+
+      const hint = document.getElementById('statusHint');
+      document.getElementById('renewBtn').addEventListener('click', async () => {
+        hint.textContent = '正在打开续费页面…';
+        try {
+          if (window.dsaDesktop && window.dsaDesktop.openStockRenew) {
+            await window.dsaDesktop.openStockRenew();
+            hint.textContent = '请在弹出窗口中完成微信支付；支付成功后点击「刷新状态」。';
+          } else {
+            hint.textContent = '续费接口不可用，请重启应用后重试。';
+          }
+        } catch (error) {
+          hint.textContent = error && error.message ? error.message : String(error);
+        }
+      });
+      document.getElementById('refreshBtn').addEventListener('click', async () => {
+        hint.textContent = '正在校验授权…';
+        try {
+          if (window.dsaDesktop && window.dsaDesktop.refreshStockLicense) {
+            const result = await window.dsaDesktop.refreshStockLicense();
+            if (result && result.is_expired === false) {
+              hint.textContent = '授权已恢复，正在进入应用…';
+            } else {
+              hint.textContent = '仍未生效，请确认支付完成后稍候再试。';
+            }
+          }
+        } catch (error) {
+          hint.textContent = error && error.message ? error.message : String(error);
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -6,6 +6,9 @@ const DESKTOP_CHECK_FOR_UPDATES_CHANNEL = 'desktop:check-for-updates';
 const DESKTOP_INSTALL_DOWNLOADED_UPDATE_CHANNEL = 'desktop:install-downloaded-update';
 const DESKTOP_OPEN_RELEASE_PAGE_CHANNEL = 'desktop:open-release-page';
 const DESKTOP_RENDER_SHARE_IMAGE_CHANNEL = 'desktop:render-share-image';
+const DESKTOP_OPEN_STOCK_RENEW_CHANNEL = 'desktop:open-stock-renew';
+const DESKTOP_GET_STOCK_LICENSE_CHANNEL = 'desktop:get-stock-license';
+const DESKTOP_REFRESH_STOCK_LICENSE_CHANNEL = 'desktop:refresh-stock-license';
 const DESKTOP_UPDATE_STATE_EVENT = 'desktop:update-state';
 
 function readDesktopVersion(argv = process.argv) {
@@ -36,6 +39,15 @@ function createDesktopBridge({
     renderShareImage(recordId) {
       return renderer.invoke(DESKTOP_RENDER_SHARE_IMAGE_CHANNEL, recordId);
     },
+    openStockRenew() {
+      return renderer.invoke(DESKTOP_OPEN_STOCK_RENEW_CHANNEL);
+    },
+    getStockLicense() {
+      return renderer.invoke(DESKTOP_GET_STOCK_LICENSE_CHANNEL);
+    },
+    refreshStockLicense() {
+      return renderer.invoke(DESKTOP_REFRESH_STOCK_LICENSE_CHANNEL);
+    },
     onUpdateStateChange(listener) {
       if (typeof listener !== 'function') {
         return () => undefined;
@@ -60,6 +72,9 @@ module.exports = {
   DESKTOP_INSTALL_DOWNLOADED_UPDATE_CHANNEL,
   DESKTOP_OPEN_RELEASE_PAGE_CHANNEL,
   DESKTOP_RENDER_SHARE_IMAGE_CHANNEL,
+  DESKTOP_OPEN_STOCK_RENEW_CHANNEL,
+  DESKTOP_GET_STOCK_LICENSE_CHANNEL,
+  DESKTOP_REFRESH_STOCK_LICENSE_CHANNEL,
   DESKTOP_UPDATE_STATE_EVENT,
   DESKTOP_VERSION_ARG_PREFIX,
   createDesktopBridge,

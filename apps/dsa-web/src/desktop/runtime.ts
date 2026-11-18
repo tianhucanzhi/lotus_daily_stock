@@ -1,9 +1,23 @@
+export type StockLicenseInfo = {
+  mac_address?: string;
+  activation_code?: string;
+  plan_type?: string;
+  plan_label?: string;
+  expires_at?: string;
+  is_expired?: boolean;
+  remaining_days?: number | null;
+  status?: number;
+};
+
 export type DesktopRuntimeApi = {
   version?: unknown;
   getUpdateState?: () => Promise<RawDesktopUpdateState>;
   checkForUpdates?: () => Promise<RawDesktopUpdateState>;
   installDownloadedUpdate?: () => Promise<boolean>;
   openReleasePage?: (releaseUrl?: string) => Promise<boolean>;
+  getStockLicense?: () => Promise<StockLicenseInfo>;
+  refreshStockLicense?: () => Promise<StockLicenseInfo>;
+  openStockRenew?: () => Promise<unknown>;
   onUpdateStateChange?: (listener: (state: RawDesktopUpdateState) => void) => (() => void) | void;
 };
 
@@ -69,4 +83,8 @@ export function getDesktopAppVersion() {
 
 export function canUseDesktopUpdateApi(runtime = getDesktopRuntimeApi()) {
   return Boolean(runtime?.getUpdateState && runtime?.checkForUpdates && runtime?.openReleasePage);
+}
+
+export function canUseStockLicenseApi(runtime = getDesktopRuntimeApi()) {
+  return Boolean(runtime?.getStockLicense);
 }

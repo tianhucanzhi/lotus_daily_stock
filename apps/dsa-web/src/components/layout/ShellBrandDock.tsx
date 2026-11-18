@@ -16,15 +16,15 @@ export const ShellBrandDock: React.FC<ShellBrandDockProps> = ({ className }) => 
     <div
       data-testid="shell-corner-controls"
       className={cn(
-        'w-full overflow-visible rounded-2xl border border-white/8 bg-black/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]',
+        'w-full overflow-visible rounded-2xl border border-[var(--shell-sidebar-border)] bg-[var(--nav-hover-bg)]',
         className,
       )}
     >
-      <div className="flex flex-col gap-0.5 p-1.5">
+      <div className="flex flex-col gap-0.5 p-1">
         <UiLanguageToggle variant="dock" />
         <ThemeToggle variant="dock" menuPlacement="top" />
       </div>
-      <div className="rounded-b-2xl border-t border-white/8 bg-black/20 px-2 py-2 text-center">
+      <div className="rounded-b-2xl border-t border-[var(--shell-sidebar-border)] bg-card/50 px-2 py-2 text-center">
         <p className="text-[10px] font-semibold tracking-wide text-secondary-text">
           v{APP_VERSION}
         </p>
