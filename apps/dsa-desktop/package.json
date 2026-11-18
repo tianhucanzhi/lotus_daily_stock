@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
+    "dev:vite": "electron .",
     "build": "electron-builder",
     "test": "node --test tests/*.test.js"
   },
@@ -12,14 +13,15 @@
     "electron-updater": "^6.8.3"
   },
   "devDependencies": {
-    "electron": "^31.4.0",
+    "electron": "^31.7.7",
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.daily-stock-analysis.desktop",
-    "productName": "Daily Stock Analysis",
+    "appId": "com.lotus.stock.desktop",
+    "productName": "莲花智投",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "afterPack": "scripts/afterPackMacos.js",
     "files": [
@@ -27,6 +29,7 @@
       "preload.js",
       "renderer/**/*"
     ],
+    "icon": "build/icon.ico",
     "extraResources": [
       {
         "from": "../../.env.example",

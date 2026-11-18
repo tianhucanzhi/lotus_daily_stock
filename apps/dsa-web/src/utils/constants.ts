@@ -9,9 +9,37 @@ const DEVELOPMENT_WEB_VERSION = 'development';
 const UNKNOWN_REVISION = 'unknown';
 const UNKNOWN_BUILD_TIME = '未提供';
 
+function resolveRuntimeApiBaseUrl() {
+  if (configuredApiBaseUrl) {
+    return configuredApiBaseUrl;
+  }
+
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  try {
+    const apiBase = new URLSearchParams(window.location.search).get('api_base')?.trim() || '';
+    if (!apiBase) {
+      return '';
+    }
+    // Only accept local desktop/dev backends to avoid open redirects.
+    const parsed = new URL(apiBase);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return '';
+    }
+    if (!['localhost', '127.0.0.1'].includes(parsed.hostname)) {
+      return '';
+    }
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+}
+
 // 默认保持同源 API，避免生产/静态部署时把请求错误打到用户本机 localhost。
-// 仅在显式提供 VITE_API_URL 时才覆盖默认行为。
-export const API_BASE_URL = configuredApiBaseUrl || '';
+// 桌面开发态可通过 ?api_base=http://127.0.0.1:PORT 指向 Electron 拉起的后端。
+export const API_BASE_URL = resolveRuntimeApiBaseUrl();
 
 export type WebBuildInfo = {
   version: string;

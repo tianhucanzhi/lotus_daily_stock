@@ -27,12 +27,19 @@ function resolveWindowBackgroundColor() {
 const isWindows = process.platform === 'win32';
 const isMac = process.platform === 'darwin';
 const appRootDev = path.resolve(__dirname, '..', '..');
+const DESKTOP_APP_DISPLAY_NAME = '莲花智投';
 const GITHUB_OWNER = 'ZhuLinsen';
 const GITHUB_REPO = 'daily_stock_analysis';
 const RELEASES_PAGE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 const LATEST_RELEASE_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 const DESKTOP_UPDATE_BACKUP_DIR = '.dsa-desktop-update-backup';
+
+try {
+  app.setName(DESKTOP_APP_DISPLAY_NAME);
+} catch (_error) {
+  // Ignore: name may already be locked in some packaged runtimes.
+}
 const DESKTOP_UPDATE_BACKUP_MANIFEST_FILE = 'runtime-state.json';
 const DESKTOP_BACKEND_DEFAULT_HOST = '127.0.0.1';
 const DESKTOP_SHARE_IMAGE_WIDTH = 1080;
@@ -970,7 +977,26 @@ function formatCommand(command, args = []) {
 }
 
 function resolvePythonPath() {
-  return process.env.DSA_PYTHON || 'python';
+  if (process.env.DSA_PYTHON) {
+    return process.env.DSA_PYTHON;
+  }
+
+  // Development launches main.py via system Python by default; prefer the
+  // project virtualenv when present so local deps (pandas, etc.) resolve.
+  const venvPythonCandidates = isWindows
+    ? [path.join(appRootDev, '.venv', 'Scripts', 'python.exe')]
+    : [
+      path.join(appRootDev, '.venv', 'bin', 'python'),
+      path.join(appRootDev, '.venv', 'bin', 'python3'),
+    ];
+
+  for (const candidate of venvPythonCandidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return 'python';
 }
 
 function ensureEnvFile(envPath) {
@@ -1337,7 +1363,90 @@ function resolveDesktopVersion() {
   return String(app.getVersion() || '').trim();
 }
 
+function resolveDesktopUiBaseUrl() {
+  if (app.isPackaged) {
+    return '';
+  }
+
+  const configured = String(process.env.DSA_DESKTOP_UI_URL || '').trim();
+  if (configured === '0' || configured.toLowerCase() === 'static') {
+    return '';
+  }
+  if (configured) {
+    return configured.replace(/\/$/, '');
+  }
+
+  // Default desktop development path: Vite HMR server.
+  if (String(process.env.DSA_DESKTOP_VITE || '1').trim() === '0') {
+    return '';
+  }
+  return 'http://127.0.0.1:5173';
+}
+
+function probeHttpUrl(targetUrl, timeoutMs = 800) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let request;
+    const finish = (ok) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(ok);
+    };
+
+    try {
+      const url = new URL(targetUrl);
+      const transport = url.protocol === 'https:' ? https : http;
+      request = transport.get(
+        {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: `${url.pathname || '/'}${url.search || ''}`,
+          timeout: timeoutMs,
+        },
+        (response) => {
+          response.resume();
+          finish(Boolean(response.statusCode && response.statusCode < 500));
+        }
+      );
+      request.on('timeout', () => {
+        request.destroy();
+        finish(false);
+      });
+      request.on('error', () => finish(false));
+    } catch (_error) {
+      finish(false);
+    }
+  });
+}
+
+async function resolveMainPageUrl(port, timestamp = Date.now(), host = DESKTOP_BACKEND_DEFAULT_HOST) {
+  const backendUrl = new URL(buildBackendUrl(host, port, '/'));
+  backendUrl.searchParams.set('desktop_version', resolveDesktopVersion() || 'unknown');
+  backendUrl.searchParams.set('cache_bust', String(timestamp));
+
+  const uiBase = resolveDesktopUiBaseUrl();
+  if (!uiBase) {
+    return backendUrl.toString();
+  }
+
+  const viteReady = await probeHttpUrl(uiBase);
+  if (!viteReady) {
+    logLine(`[startup] Vite UI not reachable at ${uiBase}; falling back to backend static assets`);
+    return backendUrl.toString();
+  }
+
+  const uiUrl = new URL(uiBase);
+  uiUrl.searchParams.set('desktop_version', resolveDesktopVersion() || 'unknown');
+  uiUrl.searchParams.set('cache_bust', String(timestamp));
+  uiUrl.searchParams.set('api_base', backendUrl.origin);
+  logLine(`[startup] Using Vite UI ${uiUrl.origin} with api_base=${backendUrl.origin}`);
+  return uiUrl.toString();
+}
+
 function buildMainPageUrl(port, timestamp = Date.now(), host = DESKTOP_BACKEND_DEFAULT_HOST) {
+  // Sync helper kept for tests/packaged callers; prefer resolveMainPageUrl in startup.
   const url = new URL(buildBackendUrl(host, port, '/'));
   url.searchParams.set('desktop_version', resolveDesktopVersion() || 'unknown');
   url.searchParams.set('cache_bust', String(timestamp));
@@ -1550,36 +1659,9 @@ function setDesktopUpdateState(nextState) {
   return desktopUpdateState;
 }
 
-async function maybePromptDesktopUpdate(state) {
-  if (!state || state.status !== UPDATE_STATUS.UPDATE_AVAILABLE) {
-    return;
-  }
-  if (state.updateMode === UPDATE_MODE.AUTO) {
-    return;
-  }
-  if (!state.latestVersion || state.latestVersion === lastNotifiedUpdateVersion) {
-    return;
-  }
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
-  }
-
-  lastNotifiedUpdateVersion = state.latestVersion;
-  const currentVersion = state.currentVersion || resolveDesktopVersion() || '当前版本';
-  const result = await dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    buttons: ['稍后', '前往下载'],
-    defaultId: 1,
-    cancelId: 0,
-    title: '发现新版本',
-    message: `检测到桌面端新版本 ${state.latestVersion}`,
-    detail: `当前版本 ${currentVersion}。新版本将跳转到 GitHub Releases 下载页，不会静默下载或自动安装。`,
-    noLink: true,
-  });
-
-  if (result.response === 1) {
-    await shell.openExternal(sanitizeReleaseUrl(state.releaseUrl));
-  }
+async function maybePromptDesktopUpdate(_state) {
+  // Lotus 品牌桌面端暂时关闭「前往 GitHub Releases」弹窗提醒。
+  return;
 }
 
 async function installDownloadedUpdate() {
@@ -1914,11 +1996,19 @@ async function createWindow() {
 
   logStartup('createWindow started');
 
+  const windowIconPath = [
+    path.join(__dirname, 'build', 'icon.ico'),
+    path.join(__dirname, 'renderer', 'favicon.ico'),
+    path.join(__dirname, 'renderer', 'lotus-mark.png'),
+  ].find((candidate) => fs.existsSync(candidate));
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 960,
     minHeight: 640,
+    title: `${DESKTOP_APP_DISPLAY_NAME} · AI 选股决策盯盘`,
+    icon: windowIconPath,
     backgroundColor: resolveWindowBackgroundColor(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -2065,13 +2155,14 @@ async function createWindow() {
     );
     logStartup(`Backend ready in ${healthInfo.elapsedMs}ms (${healthInfo.attempts} probes)`);
     const mainPageStartedAt = Date.now();
-    const mainPageUrl = buildMainPageUrl(port, Date.now(), backendConnectHost);
+    const mainPageUrl = await resolveMainPageUrl(port, Date.now(), backendConnectHost);
     await mainWindow.loadURL(mainPageUrl);
     logStartup(`Main page loadURL resolved in ${Date.now() - mainPageStartedAt}ms url=${mainPageUrl}`);
     logStartup(`Main UI loaded in ${Date.now() - startupStartedAt}ms`);
-    if (!restoreFailed) {
-      void performDesktopUpdateCheck({ notify: true });
-    }
+    // Lotus 品牌桌面端暂时关闭启动时自动检查 GitHub 更新。
+    // if (!restoreFailed) {
+    //   void performDesktopUpdateCheck({ notify: true });
+    // }
   } catch (error) {
     logStartup(`Startup failed while waiting for health: ${String(error)}`);
     const errorUrl = `file://${loadingPath}?error=${encodeURIComponent(String(error))}`;
@@ -2120,6 +2211,8 @@ module.exports = {
   fetchLatestReleaseJson,
   findAvailablePort,
   buildMainPageUrl,
+  resolveDesktopUiBaseUrl,
+  resolveMainPageUrl,
   buildDesktopShareImageUrl,
   migrateMacPackagedRuntimeState,
   normalizeVersionString,
