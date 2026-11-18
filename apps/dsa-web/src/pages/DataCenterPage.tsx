@@ -57,7 +57,7 @@ const DataCenterPage: React.FC = () => {
   const requestGeneration = useRef(0);
 
   useEffect(() => {
-    document.title = `${t('dataCenter.title')} - DSA`;
+    document.title = `${t('dataCenter.title')} - 莲花智投`;
   }, [t]);
 
   const load = useCallback(async () => {

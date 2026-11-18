@@ -7,7 +7,7 @@ import type { UiTextKey } from '../../i18n/uiText';
 import { cn } from '../../utils/cn';
 
 type ThemeOption = 'light' | 'dark' | 'system';
-type ThemeToggleVariant = 'default' | 'nav' | 'rail';
+type ThemeToggleVariant = 'default' | 'nav' | 'rail' | 'dock';
 
 const THEME_OPTIONS: Array<{
   value: ThemeOption;
@@ -33,6 +33,7 @@ function resolveThemeLabel(theme: string | undefined, t: (key: UiTextKey) => str
 interface ThemeToggleProps {
   variant?: ThemeToggleVariant;
   collapsed?: boolean;
+  menuPlacement?: 'top' | 'bottom';
   wrapperClassName?: string;
   triggerClassName?: string;
   triggerActiveClassName?: string;
@@ -43,6 +44,7 @@ interface ThemeToggleProps {
 export const ThemeToggle: React.FC<ThemeToggleProps> = ({
   variant = 'default',
   collapsed = false,
+  menuPlacement,
   wrapperClassName,
   triggerClassName,
   triggerActiveClassName,
@@ -76,9 +78,11 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
   const TriggerIcon = visualTheme === 'light' ? Sun : Moon;
   const isNavVariant = variant === 'nav';
   const isRailVariant = variant === 'rail';
+  const isDockVariant = variant === 'dock';
+  const resolvedMenuPlacement = menuPlacement ?? (isNavVariant || isRailVariant || isDockVariant ? 'top' : 'bottom');
 
   return (
-    <div className={cn('relative', isRailVariant ? 'w-full' : '', wrapperClassName)} ref={containerRef}>
+    <div className={cn('relative', isRailVariant || isDockVariant ? 'w-full' : '', wrapperClassName)} ref={containerRef}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -86,7 +90,9 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
         className={cn(
           triggerClassName
             ? triggerClassName
-            : isRailVariant
+            : isDockVariant
+              ? 'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-xs font-medium text-secondary-text transition-colors hover:bg-white/6 hover:text-foreground data-[state=open]:bg-white/8 data-[state=open]:text-foreground'
+              : isRailVariant
               ? 'flex h-[var(--nav-item-height)] w-full items-center justify-center gap-2.5 rounded-2xl border border-transparent px-2 text-sm leading-none text-secondary-text transition-all hover:bg-[var(--nav-hover-bg)] hover:text-foreground data-[state=open]:border-[var(--nav-active-border)] data-[state=open]:bg-[var(--nav-active-bg)] data-[state=open]:text-[hsl(var(--primary))]'
               : isNavVariant
                 ? 'group relative flex h-12 w-full select-none items-center gap-3 rounded-[1.35rem] border border-transparent px-4 text-sm text-secondary-text transition-all duration-300 hover:bg-hover hover:text-foreground data-[state=open]:border-subtle data-[state=open]:bg-subtle data-[state=open]:text-foreground'
@@ -98,8 +104,10 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
         aria-expanded={open}
         aria-label={t('theme.toggle')}
       >
-        <TriggerIcon className={iconClassName ?? cn('shrink-0', isRailVariant ? 'h-[18px] w-[18px]' : isNavVariant ? 'h-5 w-5' : 'h-4 w-4')} />
-        {isRailVariant ? (
+        <TriggerIcon className={iconClassName ?? cn('shrink-0', isDockVariant ? 'h-3.5 w-3.5' : isRailVariant ? 'h-[18px] w-[18px]' : isNavVariant ? 'h-5 w-5' : 'h-4 w-4')} />
+        {isDockVariant ? (
+          <span className={cn('min-w-0 flex-1 truncate text-left', labelClassName)}>{resolveThemeLabel(activeTheme, t)}</span>
+        ) : isRailVariant ? (
           <span className={labelClassName}>{t('theme.theme')}</span>
         ) : isNavVariant ? (
           collapsed ? null : <span className="truncate text-[1.02rem] font-medium">{t('theme.theme')}</span>
@@ -114,9 +122,9 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
           aria-label={t('theme.menu')}
           className={cn(
             'z-[100] min-w-[8rem] overflow-hidden rounded-2xl border border-border/70 bg-elevated p-1.5 shadow-[0_24px_48px_rgba(3,8,20,0.32)] backdrop-blur-xl',
-            isNavVariant || isRailVariant
-              ? 'absolute bottom-full left-0 mb-2 w-max min-w-[9rem]'
-              : 'absolute right-0 mt-2'
+            resolvedMenuPlacement === 'top'
+              ? 'absolute bottom-full left-0 mb-2 w-full min-w-[9rem]'
+              : 'absolute right-0 mt-2 w-max min-w-[9rem]'
           )}
         >
           {THEME_OPTIONS.map(({ value, labelKey, icon: Icon }) => {

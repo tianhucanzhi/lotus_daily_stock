@@ -43,15 +43,18 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
     .replace('Market phase: ', '');
 
   return (
-    <button
-      type="button"
-      onClick={() => onClick(item.id)}
-      aria-label={t('history.itemAria', { name: stockName, code: item.stockCode })}
-      className={`home-history-item w-full min-w-0 flex-1 text-left p-2.5 group/item ${
+    <div
+      className={`home-history-item relative w-full min-w-0 flex-1 text-left p-2.5 group/item ${
         isViewing ? 'home-history-item-selected' : ''
       }`}
     >
-      <div className="relative z-10 flex items-center gap-2.5">
+      <button
+        type="button"
+        onClick={() => onClick(item.id)}
+        aria-label={t('history.itemAria', { name: stockName, code: item.stockCode })}
+        className="absolute inset-0 z-0 rounded-[inherit]"
+      />
+      <div className="relative z-10 flex items-center gap-2.5 pointer-events-none">
         {isMarketReview ? (
           <div className="w-1 h-8 rounded-full flex-shrink-0 bg-amber-400" style={{ boxShadow: '0 0 10px rgba(251,191,36,0.4)' }} />
         ) : sentimentColor ? (
@@ -109,7 +112,7 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
                     onDelete(item.stockCode);
                   }}
                   disabled={isDeleting}
-                  className="opacity-0 group-hover/item:opacity-100 transition-opacity h-6 w-6 p-0 flex items-center justify-center"
+                  className="pointer-events-auto opacity-0 group-hover/item:opacity-100 transition-opacity h-6 w-6 p-0 flex items-center justify-center"
                   aria-label={t('history.deleteRecord', { name: item.stockName || item.stockCode })}
                 >
                   <svg className="h-3.5 w-3.5 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -150,6 +153,6 @@ export const StockBarItemComponent: React.FC<StockBarItemProps> = ({
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 };

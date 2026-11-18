@@ -8,8 +8,7 @@ import type { UiTextKey } from '../../i18n/uiText';
 import { cn } from '../../utils/cn';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { StatusDot } from '../common/StatusDot';
-import { UiLanguageToggle } from '../i18n/UiLanguageToggle';
-import { ThemeToggle } from '../theme/ThemeToggle';
+import { ShellBrandDock } from './ShellBrandDock';
 
 type SidebarNavProps = {
   collapsed?: boolean;
@@ -63,7 +62,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
   const itemLabelClass = cn('truncate', isRail ? 'text-center' : '');
 
   return (
-    <div className={cn('flex min-h-0 w-full flex-col', isRail ? '' : 'h-full')}>
+    <div className="flex h-full min-h-0 w-full flex-col">
       <div
         className={cn(
           'flex shrink-0 items-center',
@@ -73,18 +72,29 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
       >
         <div
           className={cn(
-            'flex items-center justify-center bg-primary-gradient text-[hsl(var(--primary-foreground))] shadow-[0_12px_28px_var(--nav-brand-shadow)]',
+            'flex items-center justify-center overflow-hidden bg-transparent',
             isRail ? 'h-9 w-9 rounded-[1rem]' : 'h-10 w-10 rounded-2xl'
           )}
         >
-          <BarChart3 className={cn(isRail ? 'h-[19px] w-[19px]' : 'h-5 w-5')} />
+          <img
+            src="/lotus-mark.png"
+            alt={t('layout.brandName')}
+            className={cn(isRail ? 'h-9 w-9' : 'h-10 w-10', 'object-contain')}
+          />
         </div>
         {!collapsed ? (
-          <p className={cn('min-w-0 truncate font-semibold text-foreground', isRail ? 'text-[0.95rem] leading-none' : 'text-sm')}>DSA</p>
+          <div className="min-w-0">
+            <p className={cn('truncate font-semibold text-foreground', isRail ? 'text-[0.95rem] leading-none' : 'text-sm')}>
+              {t('layout.brandName')}
+            </p>
+            {!isRail ? (
+              <p className="truncate text-[11px] leading-tight text-muted-foreground">{t('layout.appFallbackDescription')}</p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
-      <nav className={cn('flex flex-col gap-1.5', isRail ? 'min-h-0 overflow-y-auto' : 'flex-1')} aria-label={t('layout.mainNav')}>
+      <nav className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto" aria-label={t('layout.mainNav')}>
         {NAV_ITEMS.map(({ key, labelKey, to, icon: Icon, exact, badge }) => {
           const label = t(labelKey);
           return (
@@ -125,41 +135,19 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
 
       </nav>
 
-      <div className="mt-1.5 flex shrink-0 flex-col gap-1.5">
-        <ThemeToggle
-          variant={isRail ? 'rail' : 'nav'}
-          collapsed={collapsed}
-          wrapperClassName="w-full"
-          triggerClassName={itemInteractiveClass}
-          triggerActiveClassName={itemActiveClass}
-          iconClassName={itemIconClass}
-          labelClassName={itemLabelClass}
-        />
-        <UiLanguageToggle
-          variant={isRail ? 'rail' : 'nav'}
-          collapsed={collapsed}
-          wrapperClassName="w-full"
-          triggerClassName={itemInteractiveClass}
-          triggerActiveClassName={itemActiveClass}
-          iconClassName={itemIconClass}
-          labelClassName={itemLabelClass}
-        />
+      <div className="mt-auto flex shrink-0 flex-col gap-1.5 pt-2">
+        {authEnabled ? (
+          <button
+            type="button"
+            onClick={() => setShowLogoutConfirm(true)}
+            className={cn(itemInteractiveClass, 'shrink-0')}
+          >
+            <LogOut className={itemIconClass} />
+            {!collapsed ? <span className={itemLabelClass}>{t('layout.logout')}</span> : null}
+          </button>
+        ) : null}
+        <ShellBrandDock />
       </div>
-
-      {authEnabled ? (
-        <button
-          type="button"
-          onClick={() => setShowLogoutConfirm(true)}
-          className={cn(
-            itemInteractiveClass,
-            'shrink-0',
-            isRail ? 'mt-1.5' : 'mt-5'
-          )}
-        >
-          <LogOut className={itemIconClass} />
-          {!collapsed ? <span className={itemLabelClass}>{t('layout.logout')}</span> : null}
-        </button>
-      ) : null}
 
       <ConfirmDialog
         isOpen={showLogoutConfirm}

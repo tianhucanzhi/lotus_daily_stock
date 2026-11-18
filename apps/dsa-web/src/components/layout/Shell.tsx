@@ -6,8 +6,6 @@ import { Drawer } from '../common/Drawer';
 import { SidebarNav } from './SidebarNav';
 import { DesktopUpdateIndicator } from './DesktopUpdateIndicator';
 import { cn } from '../../utils/cn';
-import { ThemeToggle } from '../theme/ThemeToggle';
-import { UiLanguageToggle } from '../i18n/UiLanguageToggle';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
 
 type ShellProps = {
@@ -49,18 +47,14 @@ export const Shell: React.FC<ShellProps> = ({ children }) => {
         </button>
         <div className="pointer-events-auto ml-auto flex items-center gap-2">
           <DesktopUpdateIndicator />
-          <div className="flex items-center gap-2 lg:hidden">
-            <UiLanguageToggle />
-            <ThemeToggle />
-          </div>
         </div>
       </div>
 
       <div className="mx-auto flex min-h-screen w-full max-w-[1680px] px-3 py-3 sm:px-4 sm:py-4 lg:px-5">
         <aside
           className={cn(
-            'sticky top-3 z-40 hidden shrink-0 flex-col overflow-visible rounded-[1.5rem] border border-[var(--shell-sidebar-border)] bg-card/72 p-2.5 shadow-soft-card backdrop-blur-sm transition-[width] duration-200 lg:flex',
-            'max-h-[calc(100vh-1.5rem)] self-start sm:top-4 sm:max-h-[calc(100vh-2rem)]',
+            'sticky top-3 z-40 hidden h-[calc(100vh-1.5rem)] shrink-0 flex-col overflow-visible rounded-[1.5rem] border border-[var(--shell-sidebar-border)] bg-card/72 p-2.5 shadow-soft-card backdrop-blur-sm transition-[width] duration-200 lg:flex',
+            'self-start sm:top-4 sm:h-[calc(100vh-2rem)]',
             collapsed ? 'w-[64px]' : 'w-[136px]'
           )}
           aria-label={t('layout.desktopSidebar')}
