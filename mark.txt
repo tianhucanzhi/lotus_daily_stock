@@ -1,0 +1,17 @@
+# 跑一次分析
+python main.py
+
+# 指定股票 / 调试 / 干跑
+python main.py --stocks 600519,hk00700,AAPL
+python main.py --debug
+python main.py --dry-run
+
+# 大盘复盘
+python main.py --market-review
+
+# 定时任务
+python main.py --schedule
+
+# Web 界面（访问 http://127.0.0.1:8000）
+python main.py --webui
+python main.py --webui-only
