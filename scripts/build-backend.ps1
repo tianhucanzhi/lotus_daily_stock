@@ -4,13 +4,27 @@ Write-Host 'Building React UI (static assets)...'
 Push-Location 'apps\dsa-web'
 if (!(Test-Path 'node_modules')) {
   npm install
+  if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    throw "Frontend dependency installation failed with exit code $LASTEXITCODE."
+  }
 }
 npm run build
+if ($LASTEXITCODE -ne 0) {
+  Pop-Location
+  throw "Frontend build failed with exit code $LASTEXITCODE."
+}
 Pop-Location
 
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $pythonBin = $env:PYTHON_BIN
 if ([string]::IsNullOrWhiteSpace($pythonBin)) {
-  $pythonBin = 'python'
+  $venvPython = Join-Path $repoRoot '.venv\Scripts\python.exe'
+  if (Test-Path $venvPython) {
+    $pythonBin = $venvPython
+  } else {
+    $pythonBin = 'python'
+  }
 }
 
 Write-Host "Using Python: $pythonBin"

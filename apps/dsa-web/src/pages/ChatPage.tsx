@@ -414,6 +414,10 @@ const ChatPage: React.FC = () => {
     ],
   );
 
+  // Retained while the context-compression UI block below is temporarily commented out.
+  void contextCompressionError;
+  void updateContextCompressionEnabled;
+
   const availableSkillIds = new Set(skills.map((skill) => skill.id));
   const quickQuestions = QUICK_QUESTIONS.filter((question) => availableSkillIds.size === 0 || availableSkillIds.has(question.skill));
   const selectedSkillIdSet = new Set(selectedSkillIds);

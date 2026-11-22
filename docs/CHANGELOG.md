@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
+- [修复] 桌面后端打包在前端 `npm run build` 失败时中止，避免继续打进过期 `static/`
+- [修复] 桌面后端打包优先使用仓库 `.venv`，避免误用本机全局 Python 把无关大包打进安装包
+- [修复] 桌面安装包漏打包 `stock-license.js`，导致安装后主进程报 `Cannot find module './stock-license'`
+- [改进] Windows 桌面安装包产物前缀由 `daily-stock-analysis` 调整为 `lotus-stock`
 - [改进] 分析任务「运行诊断」实时展示分析进度输出并着色美化；过滤数据源失败/重试等运维噪声，避免用户误判结果不可信
 
 ## [3.35.0] - 2026-11-16

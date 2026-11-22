@@ -86,6 +86,8 @@ verify_*.py
 # ignore static files
 static/
 /apps/dsa-desktop/dist/
+/apps/dsa-desktop/dist-rebuild/
 /apps/dsa-desktop/node_modules/
 /node_modules/
 docs/specs/
+.electron-builder-cache/

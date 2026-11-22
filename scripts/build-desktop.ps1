@@ -78,11 +78,18 @@ Ensure-DesktopDependencies
 
 Write-Host 'Stopping running app (if any)...'
 Get-Process -Name "Daily Stock Analysis" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "莲花智投" -ErrorAction SilentlyContinue | Stop-Process -Force
 Get-Process -Name "stock_analysis" -ErrorAction SilentlyContinue | Stop-Process -Force
 
-if (Test-Path 'dist\win-unpacked') {
-  Write-Host 'Cleaning dist\win-unpacked...'
-  Remove-Item -Recurse -Force 'dist\win-unpacked'
+foreach ($unpackedDir in @('dist\win-unpacked', 'dist-v2\win-unpacked', 'dist-rebuild\win-unpacked')) {
+  if (Test-Path $unpackedDir) {
+    Write-Host "Cleaning $unpackedDir..."
+    try {
+      Remove-Item -Recurse -Force $unpackedDir -ErrorAction Stop
+    } catch {
+      Write-Host "Warning: could not fully clean $unpackedDir ($($_.Exception.Message)). Continuing."
+    }
+  }
 }
 
 $appBuilderPath = 'node_modules\app-builder-bin\win\x64\app-builder.exe'

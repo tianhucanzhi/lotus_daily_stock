@@ -27,6 +27,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "stock-license.js",
       "renderer/**/*"
     ],
     "icon": "build/icon.ico",
@@ -42,7 +43,7 @@
     ],
     "win": {
       "target": "nsis",
-      "artifactName": "daily-stock-analysis-windows-installer-v${version}.${ext}",
+      "artifactName": "lotus-stock-windows-installer-v${version}.${ext}",
       "publish": [
         {
           "provider": "github",
