@@ -123,6 +123,26 @@ const toTaskInfo = (data: Record<string, unknown>): TaskInfo => {
   if (typeof data.region === 'string' && data.region.trim()) {
     task.region = data.region;
   }
+  if (Array.isArray(data.progress_logs)) {
+    task.progressLogs = data.progress_logs
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return null;
+        }
+        const row = entry as Record<string, unknown>;
+        const message = typeof row.message === 'string' ? row.message.trim() : '';
+        if (!message) {
+          return null;
+        }
+        return {
+          ts: typeof row.ts === 'string' ? row.ts : undefined,
+          level: typeof row.level === 'string' ? row.level : undefined,
+          message,
+          progress: typeof row.progress === 'number' ? row.progress : undefined,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry != null);
+  }
 
   return task;
 };

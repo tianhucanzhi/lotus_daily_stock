@@ -1337,6 +1337,7 @@ const ChatPage: React.FC = () => {
                   className="rounded-xl px-3 py-2 text-xs shadow-none"
                 />
               ) : null}
+              {/* 暂时隐藏问股页「上下文压缩」开关
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/6 bg-surface/25 px-3 py-2">
                 <label
                   className={cn(
@@ -1372,6 +1373,7 @@ const ChatPage: React.FC = () => {
                   className="rounded-xl px-3 py-2 text-xs shadow-none"
                 />
               ) : null}
+              */}
               {skills.length > 0 && (
                 <div className="space-y-2">
                   <button

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
+- [改进] 分析任务「运行诊断」实时镜像 Python 日志输出（含进度与运行流事件），并按级别着色美化
 
 ## [3.35.0] - 2026-11-16
 

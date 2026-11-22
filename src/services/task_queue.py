@@ -17,6 +17,7 @@ import asyncio
 import copy
 import logging
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
@@ -37,6 +38,61 @@ from src.utils.analysis_metadata import SELECTION_SOURCES
 from src.services.stock_code_utils import resolve_index_stock_code_for_analysis
 
 logger = logging.getLogger(__name__)
+
+# Skip noisy framework loggers when mirroring console output into task diagnostics.
+_CONSOLE_LOG_SKIP_PREFIXES = (
+    "uvicorn",
+    "asyncio",
+    "watchfiles",
+    "multipart",
+    "httpcore",
+    "httpx",
+    "urllib3",
+    "websockets",
+)
+
+
+class _TaskConsoleLogHandler(logging.Handler):
+    """Mirror current-worker logging records into a task console stream."""
+
+    def __init__(self, task_queue: "AnalysisTaskQueue", task_id: str, thread_id: int) -> None:
+        super().__init__(level=logging.INFO)
+        self._task_queue = task_queue
+        self._task_id = task_id
+        self._thread_id = thread_id
+        self._busy = False
+        self.setFormatter(logging.Formatter("%(message)s"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self._busy or record.thread != self._thread_id:
+            return
+        name = str(record.name or "")
+        if any(name == prefix or name.startswith(f"{prefix}.") for prefix in _CONSOLE_LOG_SKIP_PREFIXES):
+            return
+        try:
+            self._busy = True
+            message = self.format(record).strip()
+            if not message:
+                return
+            short_name = name.rsplit(".", 1)[-1] if name else ""
+            if short_name and short_name not in ("root",):
+                message = f"[{short_name}] {message}"
+            if record.levelno >= logging.ERROR:
+                level = "error"
+            elif record.levelno >= logging.WARNING:
+                level = "warn"
+            else:
+                level = "info"
+            self._task_queue.append_task_console_log(
+                self._task_id,
+                message,
+                level=level,
+            )
+        except Exception:
+            # Diagnostics must never break analysis.
+            self.handleError(record)
+        finally:
+            self._busy = False
 
 
 def _dedupe_stock_code_key(stock_code: str) -> str:
@@ -136,6 +192,8 @@ class TaskInfo:
     # parser 来源的可选资产类型（``index``/``stock``/``None``）；SSE 与任务列表
     # 从这里透传，不得在消费端重新猜测。
     asset_type: Optional[str] = None
+    # 运行诊断控制台日志（进度消息 / 运行流事件），有界缓存，供 Web UI 动态展示。
+    progress_logs: List[Dict[str, Any]] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert task info into an API-friendly dictionary."""
@@ -156,6 +214,7 @@ class TaskInfo:
             "original_query": self.original_query,
             "selection_source": self.selection_source,
             "skills": self.skills,
+            "progress_logs": copy.deepcopy(self.progress_logs),
         }
         if self.region is not None:
             payload["region"] = self.region
@@ -191,6 +250,7 @@ class TaskInfo:
             dedupe_key=self.dedupe_key,
             analysis_target=self.analysis_target,
             asset_type=self.asset_type,
+            progress_logs=copy.deepcopy(self.progress_logs),
         )
 
 
@@ -255,9 +315,134 @@ class AnalysisTaskQueue:
         # 任务历史保留数量（内存中）
         self._max_history = 100
         self._max_flow_events_per_task = 200
+        self._max_progress_logs_per_task = 800
+        # Throttle console-log SSE so high-volume logger output does not flood subscribers.
+        self._console_log_broadcast_interval_sec = 0.25
+        self._console_log_last_broadcast: Dict[str, float] = {}
+        self._console_log_dirty: Dict[str, bool] = {}
         
         self._initialized = True
         logger.info(f"[TaskQueue] 初始化完成，最大并发: {max_workers}")
+
+    @staticmethod
+    def _infer_progress_log_level(message: str) -> str:
+        """Infer a console log level from progress / flow text."""
+        text = (message or "").strip().lower()
+        if not text:
+            return "info"
+        if any(token in text for token in ("失败", "错误", "error", "fail", "exception", "traceback")):
+            return "error"
+        if any(token in text for token in ("警告", "warn", "降级", "fallback", "超时", "timeout")):
+            return "warn"
+        if any(token in text for token in ("完成", "成功", "success", "done", "就绪")):
+            return "success"
+        return "info"
+
+    def _append_progress_log(
+        self,
+        task: TaskInfo,
+        message: Optional[str],
+        *,
+        level: Optional[str] = None,
+        progress: Optional[int] = None,
+    ) -> None:
+        """Append a bounded console log line onto an in-memory task."""
+        text = (message or "").strip()
+        if not text:
+            return
+
+        next_progress = task.progress if progress is None else max(0, min(100, int(progress)))
+        if task.progress_logs:
+            last = task.progress_logs[-1]
+            if last.get("message") == text:
+                last["progress"] = next_progress
+                last["ts"] = datetime.now().isoformat()
+                if level:
+                    last["level"] = level
+                return
+
+        task.progress_logs.append(
+            {
+                "ts": datetime.now().isoformat(),
+                "level": level or self._infer_progress_log_level(text),
+                "message": text,
+                "progress": next_progress,
+            }
+        )
+        if len(task.progress_logs) > self._max_progress_logs_per_task:
+            task.progress_logs = task.progress_logs[-self._max_progress_logs_per_task:]
+
+    def append_task_console_log(
+        self,
+        task_id: str,
+        message: str,
+        *,
+        level: Optional[str] = None,
+    ) -> None:
+        """Append a mirrored Python console line and throttled-broadcast it."""
+        snapshot: Optional[TaskInfo] = None
+        with self._data_lock:
+            task = self._tasks.get(task_id)
+            if not task or task.status not in (
+                TaskStatus.PENDING,
+                TaskStatus.PROCESSING,
+                TaskStatus.CANCEL_REQUESTED,
+            ):
+                return
+
+            self._append_progress_log(
+                task,
+                message,
+                level=level,
+                progress=task.progress,
+            )
+
+            now = time.monotonic()
+            last = self._console_log_last_broadcast.get(task_id, 0.0)
+            if now - last >= self._console_log_broadcast_interval_sec:
+                self._console_log_last_broadcast[task_id] = now
+                self._console_log_dirty[task_id] = False
+                snapshot = task.copy()
+            else:
+                self._console_log_dirty[task_id] = True
+
+        if snapshot is not None:
+            self._broadcast_event("task_progress", snapshot.to_dict())
+
+    def flush_task_console_logs(self, task_id: str) -> None:
+        """Force-broadcast any pending console lines for a task."""
+        with self._data_lock:
+            task = self._tasks.get(task_id)
+            self._console_log_dirty.pop(task_id, None)
+            if not task:
+                self._console_log_last_broadcast.pop(task_id, None)
+                return
+            self._console_log_last_broadcast[task_id] = time.monotonic()
+            snapshot = task.copy()
+        self._broadcast_event("task_progress", snapshot.to_dict())
+
+    def _install_task_console_handler(self, task_id: str) -> _TaskConsoleLogHandler:
+        handler = _TaskConsoleLogHandler(self, task_id, threading.get_ident())
+        logging.getLogger().addHandler(handler)
+        return handler
+
+    @staticmethod
+    def _remove_task_console_handler(handler: Optional[logging.Handler]) -> None:
+        if handler is None:
+            return
+        root_logger = logging.getLogger()
+        try:
+            root_logger.removeHandler(handler)
+        except Exception:
+            pass
+        try:
+            handler.close()
+        except Exception:
+            pass
+
+    def _clear_task_console_throttle(self, task_id: str) -> None:
+        self._console_log_dirty.pop(task_id, None)
+        self._console_log_last_broadcast.pop(task_id, None)
     
     @property
     def executor(self) -> ThreadPoolExecutor:
@@ -652,6 +837,25 @@ class AnalysisTaskQueue:
             task.flow_events.append(event_payload)
             if len(task.flow_events) > self._max_flow_events_per_task:
                 task.flow_events = task.flow_events[-self._max_flow_events_per_task:]
+
+            severity = str(event_payload.get("severity") or "").strip().lower()
+            level_map = {
+                "danger": "error",
+                "warning": "warn",
+                "success": "success",
+                "info": "info",
+            }
+            flow_message = (
+                str(event_payload.get("message") or "").strip()
+                or str(event_payload.get("title") or "").strip()
+            )
+            if flow_message:
+                self._append_progress_log(
+                    task,
+                    flow_message,
+                    level=level_map.get(severity),
+                    progress=task.progress,
+                )
             task_snapshot = task.copy()
 
         payload = task_snapshot.to_dict()
@@ -744,6 +948,18 @@ class AnalysisTaskQueue:
             if message is not None and message != task.message:
                 task.message = message
                 changed = True
+                self._append_progress_log(
+                    task,
+                    message,
+                    progress=next_progress,
+                )
+            elif changed and message is None and task.message:
+                # Progress-only ticks still refresh the latest console line timestamp.
+                self._append_progress_log(
+                    task,
+                    task.message,
+                    progress=next_progress,
+                )
 
             if not changed:
                 return task.copy()
@@ -792,9 +1008,12 @@ class AnalysisTaskQueue:
             task.started_at = datetime.now()
             task.message = "正在分析中..."
             task.progress = 10
+            self._append_progress_log(task, task.message, progress=task.progress)
         
         self._broadcast_event("task_started", task.to_dict())
-        
+
+        console_handler: Optional[_TaskConsoleLogHandler] = None
+        diag_token = None
         try:
             # 导入分析服务（延迟导入避免循环依赖）
             from src.services.analysis_service import AnalysisService
@@ -805,7 +1024,7 @@ class AnalysisTaskQueue:
             def _on_progress(progress: int, message: str) -> None:
                 self.update_task_progress(task_id, progress, message)
 
-            diag_token = None
+            console_handler = self._install_task_console_handler(task_id)
             if get_current_diagnostic_context() is None:
                 diag_token = activate_run_diagnostic_context(
                     trace_id=trace_id,
@@ -830,10 +1049,9 @@ class AnalysisTaskQueue:
                 report_language=report_language,
                 analysis_target=analysis_target,
             )
-            reset_run_diagnostic_context(diag_token)
-            diag_token = None
             
             if result:
+                self.flush_task_console_logs(task_id)
                 # 更新任务状态为完成
                 with self._data_lock:
                     task = self._tasks.get(task_id)
@@ -844,6 +1062,12 @@ class AnalysisTaskQueue:
                         task.result = result
                         task.message = "分析完成"
                         task.stock_name = result.get("stock_name", task.stock_name)
+                        self._append_progress_log(
+                            task,
+                            task.message,
+                            level="success",
+                            progress=100,
+                        )
                         
                         # 从分析中集合移除（使用 submit 时固化的 key，避免不一致残留）
                         dedupe_key = task.dedupe_key or _dedupe_task_key(
@@ -865,10 +1089,9 @@ class AnalysisTaskQueue:
                 raise Exception(service.last_error or "分析返回空结果")
                 
         except Exception as e:
-            if "diag_token" in locals():
-                reset_run_diagnostic_context(diag_token)
             error_msg = str(e)
             logger.error(f"[TaskQueue] 任务失败: {task_id} ({stock_code}), 错误: {error_msg}")
+            self.flush_task_console_logs(task_id)
             
             with self._data_lock:
                 task = self._tasks.get(task_id)
@@ -877,6 +1100,12 @@ class AnalysisTaskQueue:
                     task.completed_at = datetime.now()
                     task.error = error_msg[:200]  # 限制错误信息长度
                     task.message = f"分析失败: {error_msg[:50]}"
+                    self._append_progress_log(
+                        task,
+                        task.message,
+                        level="error",
+                        progress=task.progress,
+                    )
                     
                     # 从分析中集合移除（使用 submit 时固化的 key，避免不一致残留）
                     dedupe_key = task.dedupe_key or _dedupe_task_key(
@@ -892,6 +1121,10 @@ class AnalysisTaskQueue:
             self._cleanup_old_tasks()
             
             return None
+        finally:
+            reset_run_diagnostic_context(diag_token)
+            self._remove_task_console_handler(console_handler)
+            self._clear_task_console_throttle(task_id)
 
     def _execute_background_task(
         self,
@@ -918,10 +1151,13 @@ class AnalysisTaskQueue:
             task.started_at = datetime.now()
             task.message = "任务执行中"
             task.progress = 10
+            self._append_progress_log(task, task.message, progress=task.progress)
             self._broadcast_event("task_started", task.to_dict())
 
+        console_handler: Optional[_TaskConsoleLogHandler] = None
+        diag_token = None
         try:
-            diag_token = None
+            console_handler = self._install_task_console_handler(task_id)
             if get_current_diagnostic_context() is None:
                 diag_token = activate_run_diagnostic_context(
                     trace_id=trace_id,
@@ -931,13 +1167,11 @@ class AnalysisTaskQueue:
                     trigger_source="api",
                     event_sink=lambda event: self.append_task_flow_event(task_id, event),
                 )
-            try:
-                result = run_task()
-            finally:
-                reset_run_diagnostic_context(diag_token)
+            result = run_task()
             if result is None:
                 raise RuntimeError("任务返回空结果，未生成可持久化内容")
 
+            self.flush_task_console_logs(task_id)
             with self._data_lock:
                 task = self._tasks.get(task_id)
                 if task:
@@ -946,6 +1180,12 @@ class AnalysisTaskQueue:
                     task.completed_at = datetime.now()
                     task.result = result
                     task.message = "任务执行完成"
+                    self._append_progress_log(
+                        task,
+                        task.message,
+                        level="success",
+                        progress=100,
+                    )
 
             self._broadcast_event("task_completed", task.to_dict())
             logger.info(f"[TaskQueue] 自定义任务完成: {task_id}")
@@ -958,6 +1198,7 @@ class AnalysisTaskQueue:
             logger.error(
                 f"[TaskQueue] 自定义任务失败: {task_id}, 错误: {error_msg}"
             )
+            self.flush_task_console_logs(task_id)
 
             with self._data_lock:
                 task = self._tasks.get(task_id)
@@ -966,12 +1207,22 @@ class AnalysisTaskQueue:
                     task.completed_at = datetime.now()
                     task.error = error_msg[:200]
                     task.message = f"任务失败: {error_msg[:80]}"
+                    self._append_progress_log(
+                        task,
+                        task.message,
+                        level="error",
+                        progress=task.progress,
+                    )
 
             if task:
                 self._broadcast_event("task_failed", task.to_dict())
 
             self._cleanup_old_tasks()
             return None
+        finally:
+            reset_run_diagnostic_context(diag_token)
+            self._remove_task_console_handler(console_handler)
+            self._clear_task_console_throttle(task_id)
     
     def _cleanup_old_tasks(self) -> int:
         """

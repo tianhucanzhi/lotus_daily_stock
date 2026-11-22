@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { Outlet } from 'react-router-dom';
 import { Drawer } from '../common/Drawer';
+import { ContactUsFab } from './ContactUsFab';
 import { SidebarNav } from './SidebarNav';
 import { cn } from '../../utils/cn';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
@@ -73,6 +74,8 @@ export const Shell: React.FC<ShellProps> = ({ children }) => {
       >
         <SidebarNav onNavigate={() => setMobileOpen(false)} />
       </Drawer>
+
+      <ContactUsFab />
     </div>
   );
 };

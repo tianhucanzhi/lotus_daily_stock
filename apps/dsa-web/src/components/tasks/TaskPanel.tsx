@@ -1,11 +1,67 @@
 import type React from 'react';
-import { useId, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, RefreshCw, Workflow } from 'lucide-react';
 import { Badge, Button, Card, StatusDot, Tooltip } from '../common';
 import { DashboardPanelHeader } from '../dashboard';
-import type { TaskInfo } from '../../types/analysis';
+import type { TaskInfo, TaskProgressLog, TaskProgressLogLevel } from '../../types/analysis';
 import { getRequestedPhaseLabel } from '../../utils/marketPhase';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
+
+const MAX_LOCAL_CONSOLE_LINES = 200;
+
+function inferLogLevel(message: string): TaskProgressLogLevel {
+  const text = message.trim().toLowerCase();
+  if (!text) return 'info';
+  if (/(失败|错误|error|fail|exception|traceback)/i.test(text)) return 'error';
+  if (/(警告|warn|降级|fallback|超时|timeout)/i.test(text)) return 'warn';
+  if (/(完成|成功|success|done|就绪)/i.test(text)) return 'success';
+  return 'info';
+}
+
+function formatLogTime(ts?: string): string {
+  if (!ts) return '--:--:--';
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) {
+    const match = ts.match(/(\d{2}:\d{2}:\d{2})/);
+    return match?.[1] ?? (ts.slice(11, 19) || '--:--:--');
+  }
+  return date.toLocaleTimeString('zh-CN', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function levelClassName(level?: string): string {
+  switch ((level || 'info').toLowerCase()) {
+    case 'error':
+    case 'danger':
+      return 'text-rose-300';
+    case 'warn':
+    case 'warning':
+      return 'text-amber-300';
+    case 'success':
+      return 'text-emerald-300';
+    default:
+      return 'text-cyan-100/90';
+  }
+}
+
+function levelBadge(level?: string): string {
+  switch ((level || 'info').toLowerCase()) {
+    case 'error':
+    case 'danger':
+      return 'ERR';
+    case 'warn':
+    case 'warning':
+      return 'WRN';
+    case 'success':
+      return 'OK ';
+    default:
+      return 'INF';
+  }
+}
 
 /**
  * 任务项组件属性
@@ -35,6 +91,85 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onOpenRunFlow }) => {
   const traceId = (task.traceId || '').trim();
   const requestedPhaseLabel = getRequestedPhaseLabel(task.analysisPhase, language);
   const requestedPhaseVariant = task.analysisPhase === 'auto' ? 'default' : 'info';
+  const consoleRef = useRef<HTMLDivElement>(null);
+  const [localLogs, setLocalLogs] = useState<TaskProgressLog[]>([]);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(true);
+
+  useEffect(() => {
+    if (task.progressLogs && task.progressLogs.length > 0) {
+      return;
+    }
+    const message = (task.message || '').trim();
+    if (!message) {
+      return;
+    }
+    setLocalLogs((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.message === message) {
+        if (last.progress === task.progress) {
+          return prev;
+        }
+        const next = prev.slice();
+        next[next.length - 1] = {
+          ...last,
+          progress: task.progress,
+          ts: new Date().toISOString(),
+        };
+        return next;
+      }
+      return [
+        ...prev,
+        {
+          ts: new Date().toISOString(),
+          level: inferLogLevel(message),
+          message,
+          progress: task.progress,
+        },
+      ].slice(-MAX_LOCAL_CONSOLE_LINES);
+    });
+  }, [task.message, task.progress, task.progressLogs]);
+
+  useEffect(() => {
+    if (!task.error) {
+      return;
+    }
+    if (task.progressLogs && task.progressLogs.length > 0) {
+      return;
+    }
+    const errorMessage = task.error.trim();
+    if (!errorMessage) {
+      return;
+    }
+    setLocalLogs((prev) => {
+      if (prev.some((line) => line.message === errorMessage && line.level === 'error')) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          ts: new Date().toISOString(),
+          level: 'error',
+          message: errorMessage,
+          progress: task.progress,
+        },
+      ].slice(-MAX_LOCAL_CONSOLE_LINES);
+    });
+  }, [task.error, task.progress, task.progressLogs]);
+
+  const consoleLogs = useMemo(() => {
+    if (task.progressLogs && task.progressLogs.length > 0) {
+      return task.progressLogs;
+    }
+    return localLogs;
+  }, [task.progressLogs, localLogs]);
+
+  useEffect(() => {
+    const el = consoleRef.current;
+    if (!el) {
+      return;
+    }
+    el.scrollTop = el.scrollHeight;
+  }, [consoleLogs]);
 
   return (
     <div className="home-subpanel grid min-w-0 gap-2.5 px-3 py-2.5" data-testid="task-panel-item">
@@ -122,7 +257,13 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onOpenRunFlow }) => {
       </div>
 
       {traceId ? (
-        <details className="group/task text-xs">
+        <details
+          className="group/task text-xs"
+          open={diagnosticsOpen}
+          onToggle={(event) => {
+            setDiagnosticsOpen((event.currentTarget as HTMLDetailsElement).open);
+          }}
+        >
           <summary
             className="grid cursor-pointer list-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-muted-text"
             data-testid="task-panel-diagnostics-summary"
@@ -133,11 +274,46 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onOpenRunFlow }) => {
             </span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open/task:rotate-180" aria-hidden="true" />
           </summary>
-          <div className="mt-1 rounded-lg border border-subtle bg-base/50 px-2 py-1.5 text-muted-text">
-            <span className="mr-1">Trace:</span>
-            <code className="break-all font-mono text-[11px] text-secondary-text">
-              {traceId}
-            </code>
+          <div className="mt-1 space-y-1.5 rounded-lg border border-subtle bg-[#0b1220]/90 px-2 py-1.5 shadow-inner">
+            <div className="text-muted-text">
+              <span className="mr-1">Trace:</span>
+              <code className="break-all font-mono text-[11px] text-secondary-text">
+                {traceId}
+              </code>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.08em] text-muted-text">
+              <span>{t('taskPanel.console')}</span>
+              <span className="font-mono normal-case tracking-normal tabular-nums text-secondary-text">
+                {consoleLogs.length}
+              </span>
+            </div>
+            <div
+              ref={consoleRef}
+              data-testid="task-panel-console"
+              className="max-h-56 overflow-y-auto rounded-md border border-white/5 bg-black/35 px-2 py-1.5 font-mono text-[11px] leading-5"
+              aria-live="polite"
+            >
+              {consoleLogs.length === 0 ? (
+                <div className="text-muted-text">{t('taskPanel.consoleEmpty')}</div>
+              ) : (
+                consoleLogs.map((line, index) => (
+                  <div
+                    key={`${line.ts || 'log'}-${index}-${line.message}`}
+                    className={`grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-2 ${levelClassName(line.level)}`}
+                  >
+                    <span className="shrink-0 text-white/35 tabular-nums">
+                      {formatLogTime(line.ts)}
+                    </span>
+                    <span className="shrink-0 text-white/45">
+                      {levelBadge(line.level)}
+                    </span>
+                    <span className="min-w-0 break-words whitespace-pre-wrap">
+                      {line.message}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </details>
       ) : null}
@@ -284,7 +460,7 @@ export const TaskPanel: React.FC<TaskPanelProps> = ({
           </div>
         </div>
       ) : (
-        <div id={contentId} className="max-h-64 overflow-y-auto border-t border-subtle p-2">
+        <div id={contentId} className="max-h-96 overflow-y-auto border-t border-subtle p-2">
           <div className="space-y-2">
             {activeTasks.map((task) => (
               <TaskItem key={task.taskId} task={task} onOpenRunFlow={onOpenRunFlow} />

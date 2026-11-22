@@ -487,6 +487,16 @@ export interface TaskStatus {
   skills?: string[];
 }
 
+/** Live console line for task diagnostics (SSE / task list). */
+export type TaskProgressLogLevel = 'info' | 'success' | 'warn' | 'error';
+
+export interface TaskProgressLog {
+  ts?: string;
+  level?: TaskProgressLogLevel | string;
+  message: string;
+  progress?: number;
+}
+
 /** Task details used by task list and SSE events */
 export interface TaskInfo {
   taskId: string;
@@ -507,6 +517,8 @@ export interface TaskInfo {
   skills?: string[];
   region?: string;
   assetType?: 'stock' | 'index';
+  /** Bounded analysis console lines for the diagnostics panel. */
+  progressLogs?: TaskProgressLog[];
 }
 
 /** Task list response */
