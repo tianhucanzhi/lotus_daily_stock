@@ -51,6 +51,77 @@ _CONSOLE_LOG_SKIP_PREFIXES = (
     "websockets",
 )
 
+# Internal ops noise that should stay in the real Python console / run-flow drawer,
+# not the user-facing task console (avoids "lots of failures" distrust).
+_USER_CONSOLE_SUPPRESS_TOKENS = (
+    "获取失败",
+    "失败:",
+    "失败：",
+    "error_type=",
+    "traceback",
+    "exception",
+    "fallback",
+    "降级",
+    "重试",
+    "retry",
+    "暂不可用",
+    "不可用",
+    "permission",
+    "权限不足",
+    "权限失败",
+    "跳过暂不可用",
+    "切换到下一个",
+    "备用源",
+    "rate limit",
+    "ratelimit",
+    "限流",
+    "status_code",
+    "http 4",
+    "http 5",
+    "stack",
+    "caused by",
+)
+
+
+def _should_suppress_user_console_message(message: str) -> bool:
+    """Return True when a log line is internal ops noise for end users."""
+    text = (message or "").strip().lower()
+    if not text:
+        return True
+    return any(token.lower() in text for token in _USER_CONSOLE_SUPPRESS_TOKENS)
+
+
+def _user_console_line_from_flow_event(
+    event_payload: Dict[str, Any],
+) -> Optional[Tuple[str, str]]:
+    """
+    Convert a run-flow event into a user-facing console line.
+
+    Intermediate provider/model failures stay in the run-flow drawer only.
+    Soften fallback switches so users see continuity, not raw error dumps.
+    """
+    severity = str(event_payload.get("severity") or "").strip().lower()
+    raw_message = (
+        str(event_payload.get("message") or "").strip()
+        or str(event_payload.get("title") or "").strip()
+    )
+    metadata = event_payload.get("metadata")
+    meta = metadata if isinstance(metadata, dict) else {}
+    fallback_to = str(meta.get("fallback_to") or meta.get("fallback_model") or "").strip()
+
+    if severity in ("danger", "warning"):
+        if fallback_to:
+            return (f"数据源自动切换至 {fallback_to}，继续分析", "info")
+        # Hide raw failure text from the user console.
+        return None
+
+    if not raw_message or _should_suppress_user_console_message(raw_message):
+        return None
+
+    if severity == "success":
+        return (raw_message, "success")
+    return (raw_message, "info")
+
 
 class _TaskConsoleLogHandler(logging.Handler):
     """Mirror current-worker logging records into a task console stream."""
@@ -66,27 +137,22 @@ class _TaskConsoleLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         if self._busy or record.thread != self._thread_id:
             return
+        # WARNING/ERROR are operational details (retries, source failover). Keep them
+        # in the real console; only surface curated progress / success to users.
+        if record.levelno >= logging.WARNING:
+            return
         name = str(record.name or "")
         if any(name == prefix or name.startswith(f"{prefix}.") for prefix in _CONSOLE_LOG_SKIP_PREFIXES):
             return
         try:
             self._busy = True
             message = self.format(record).strip()
-            if not message:
+            if not message or _should_suppress_user_console_message(message):
                 return
-            short_name = name.rsplit(".", 1)[-1] if name else ""
-            if short_name and short_name not in ("root",):
-                message = f"[{short_name}] {message}"
-            if record.levelno >= logging.ERROR:
-                level = "error"
-            elif record.levelno >= logging.WARNING:
-                level = "warn"
-            else:
-                level = "info"
             self._task_queue.append_task_console_log(
                 self._task_id,
                 message,
-                level=level,
+                level="info",
             )
         except Exception:
             # Diagnostics must never break analysis.
@@ -838,22 +904,13 @@ class AnalysisTaskQueue:
             if len(task.flow_events) > self._max_flow_events_per_task:
                 task.flow_events = task.flow_events[-self._max_flow_events_per_task:]
 
-            severity = str(event_payload.get("severity") or "").strip().lower()
-            level_map = {
-                "danger": "error",
-                "warning": "warn",
-                "success": "success",
-                "info": "info",
-            }
-            flow_message = (
-                str(event_payload.get("message") or "").strip()
-                or str(event_payload.get("title") or "").strip()
-            )
-            if flow_message:
+            console_line = _user_console_line_from_flow_event(event_payload)
+            if console_line is not None:
+                flow_message, flow_level = console_line
                 self._append_progress_log(
                     task,
                     flow_message,
-                    level=level_map.get(severity),
+                    level=flow_level,
                     progress=task.progress,
                 )
             task_snapshot = task.copy()
